@@ -7,6 +7,10 @@
 
   <!-- Tailwind (CDN build, fine for a self-contained tool) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Enable class-based dark mode (toggled by adding/removing `dark` on <html>)
+    tailwind.config = { darkMode: 'class' };
+  </script>
 
   <!-- React + ReactDOM + Babel (for in-browser JSX) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -21,13 +25,95 @@
     input[type=number]::-webkit-outer-spin-button,
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
+
+    /* ---------------------------------------------------------------- *
+     *  Dark mode. The app uses hardcoded warm-paper hex backgrounds and
+     *  Tailwind stone/emerald classes. Rather than annotate every node,
+     *  we remap the specific surfaces, text shades, and borders in use
+     *  when <html class="dark"> is set. Transitions keep the flip smooth.
+     * ---------------------------------------------------------------- */
+    html { transition: background-color .25s ease; }
+    .dark body { background-color: #16140f; }
+
+    /* App root + page surfaces (custom hex) */
+    .dark .bg-\[\#f6f2e9\] { background-color: #16140f !important; }
+    .dark .bg-\[\#fdfcf8\] { background-color: #221f18 !important; }
+    .dark .bg-white         { background-color: #2a2620 !important; }
+    .dark .bg-white\/70      { background-color: rgba(42,38,32,0.7) !important; }
+    .dark .bg-white\/40      { background-color: rgba(42,38,32,0.4) !important; }
+    .dark .bg-white\/60      { background-color: rgba(42,38,32,0.6) !important; }
+    .dark .bg-stone-50      { background-color: #221f18 !important; }
+    .dark .bg-stone-100     { background-color: #2a2620 !important; }
+
+    /* Text shades */
+    .dark .text-stone-900 { color: #f5f1e8 !important; }
+    .dark .text-stone-800 { color: #ece7db !important; }
+    .dark .text-stone-700 { color: #d8d2c4 !important; }
+    .dark .text-stone-600 { color: #c4bdac !important; }
+    .dark .text-stone-500 { color: #a8a090 !important; }
+    .dark .text-stone-400 { color: #8a8273 !important; }
+    .dark .text-stone-300 { color: #6f6859 !important; }
+
+    /* Borders */
+    .dark .border-stone-200    { border-color: #3a352c !important; }
+    .dark .border-stone-300    { border-color: #45403455 !important; }
+    .dark .border-stone-300\/70 { border-color: #45403466 !important; }
+
+    /* Inputs need explicit dark surface + readable text */
+    .dark input, .dark select {
+      background-color: #2a2620 !important;
+      color: #ece7db !important;
+      border-color: #3a352c !important;
+    }
+    .dark input::placeholder { color: #6f6859 !important; }
+    .dark select option { background-color: #2a2620; color: #ece7db; }
+
+    /* Emerald accents stay legible; lighten the tinted backgrounds slightly */
+    .dark .bg-emerald-50\/60 { background-color: rgba(31,111,92,0.18) !important; }
+    .dark .border-emerald-200 { border-color: rgba(31,111,92,0.45) !important; }
+    .dark .text-emerald-700 { color: #6fcab2 !important; }
+
+    /* Amber warning banner: deepen for dark bg */
+    .dark .bg-amber-50 { background-color: rgba(180,120,20,0.14) !important; }
+    .dark .border-amber-300 { border-color: rgba(180,120,20,0.5) !important; }
+    .dark .text-amber-800 { color: #f0c674 !important; }
+    .dark .text-amber-700 { color: #e0b35f !important; }
+
+    /* Red remove-hover */
+    .dark .hover\:bg-red-50:hover { background-color: rgba(180,40,40,0.15) !important; }
   </style>
 </head>
 <body class="bg-[#f6f2e9]">
   <div id="root"></div>
 
   <script type="text/babel" data-presets="react">
-    const { useState, useMemo, useCallback } = React;
+    const { useState, useMemo, useCallback, useEffect, useRef } = React;
+
+    /* ----------------------- Persistence helpers ---------------------- */
+    const STORAGE_KEY = "debtPortfolio.v1";
+    const THEME_KEY = "debtPortfolio.theme";
+
+    function loadSaved() {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.debts)) return parsed;
+      } catch (e) { /* ignore corrupt data */ }
+      return null;
+    }
+
+    function loadTheme() {
+      try {
+        const t = window.localStorage.getItem(THEME_KEY);
+        if (t === "dark" || t === "light") return t;
+      } catch (e) {}
+      // Fall back to OS preference
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        return "dark";
+      }
+      return "light";
+    }
 
     /* ------------------------------------------------------------------ *
      *  Inline SVG icon helper (replaces lucide-react)
@@ -62,6 +148,12 @@
     const CheckCircle2 = (p) => <Icon {...p} paths={<><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></>} />;
     const Coins = (p) => <Icon {...p} paths={<><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></>} />;
     const Landmark = (p) => <Icon {...p} paths={<><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></>} />;
+    const Save = (p) => <Icon {...p} paths={<><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>} />;
+    const Download = (p) => <Icon {...p} paths={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>} />;
+    const Upload = (p) => <Icon {...p} paths={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>} />;
+    const Sun = (p) => <Icon {...p} paths={<><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></>} />;
+    const Moon = (p) => <Icon {...p} paths={<><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></>} />;
+    const Check = (p) => <Icon {...p} paths={<><polyline points="20 6 9 17 4 12"/></>} />;
 
     /* ------------------------------------------------------------------ */
     const FREQUENCIES = {
@@ -984,8 +1076,93 @@
 
     /* ------------------------------ App ------------------------------- */
     function DebtPortfolioCalculator() {
-      const [debts, setDebts] = useState([makeDebt()]);
-      const [strategy, setStrategy] = useState("avalanche");
+      const saved = useMemo(() => loadSaved(), []);
+      const [debts, setDebts] = useState(
+        saved && saved.debts.length ? saved.debts : [makeDebt()]
+      );
+      const [strategy, setStrategy] = useState(
+        (saved && saved.strategy) || "avalanche"
+      );
+      const [theme, setTheme] = useState(() => loadTheme());
+      const [saveNote, setSaveNote] = useState("");
+      const fileInputRef = useRef(null);
+
+      // Apply + persist theme
+      useEffect(() => {
+        const root = document.documentElement;
+        if (theme === "dark") root.classList.add("dark");
+        else root.classList.remove("dark");
+        try { window.localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+      }, [theme]);
+
+      // Auto-save debts + strategy whenever they change
+      useEffect(() => {
+        try {
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ debts, strategy, savedAt: Date.now() })
+          );
+        } catch (e) {}
+      }, [debts, strategy]);
+
+      const flashNote = useCallback((msg) => {
+        setSaveNote(msg);
+        window.clearTimeout(flashNote._t);
+        flashNote._t = window.setTimeout(() => setSaveNote(""), 2600);
+      }, []);
+
+      const handleSaveNow = useCallback(() => {
+        try {
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ debts, strategy, savedAt: Date.now() })
+          );
+          flashNote("Saved to this browser");
+        } catch (e) {
+          flashNote("Couldn't save — storage blocked");
+        }
+      }, [debts, strategy, flashNote]);
+
+      const handleExport = useCallback(() => {
+        const blob = new Blob(
+          [JSON.stringify({ debts, strategy, exportedAt: new Date().toISOString() }, null, 2)],
+          { type: "application/json" }
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "debt-portfolio-" + new Date().toISOString().slice(0, 10) + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        flashNote("Backup downloaded");
+      }, [debts, strategy, flashNote]);
+
+      const handleImportClick = useCallback(() => {
+        if (fileInputRef.current) fileInputRef.current.click();
+      }, []);
+
+      const handleImportFile = useCallback((e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const parsed = JSON.parse(reader.result);
+            if (!parsed || !Array.isArray(parsed.debts)) throw new Error("bad");
+            // Ensure each debt has the fields the app expects
+            const restored = parsed.debts.map((d) => ({ ...makeDebt(), ...d }));
+            setDebts(restored.length ? restored : [makeDebt()]);
+            if (parsed.strategy) setStrategy(parsed.strategy);
+            flashNote("Data imported");
+          } catch (err) {
+            flashNote("That file isn't a valid backup");
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = ""; // allow re-importing the same file
+      }, [flashNote]);
 
       const handleChange = useCallback((id, next) => {
         setDebts((prev) => prev.map((d) => (d.id === id ? next : d)));
@@ -1086,7 +1263,7 @@
           }} />
 
           <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <header className="mb-8 flex flex-col gap-1 border-b border-stone-300/70 pb-6">
+            <header className="mb-8 flex flex-col gap-4 border-b border-stone-300/70 pb-6 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-800 text-white shadow-sm">
                   <TrendingDown size={20} />
@@ -1095,6 +1272,49 @@
                   <h1 className="font-serif text-2xl font-bold leading-tight text-stone-900">Debt Portfolio Calculator</h1>
                   <p className="text-sm text-stone-500">Map every balance, model your payoff, and find your date with freedom.</p>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {saveNote && (
+                  <span className="flex items-center gap-1 rounded-lg bg-emerald-800/10 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                    <Check size={13} /> {saveNote}
+                  </span>
+                )}
+                <button
+                  onClick={handleSaveNow}
+                  title="Save to this browser"
+                  className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-emerald-700 hover:text-emerald-800"
+                >
+                  <Save size={14} /> Save
+                </button>
+                <button
+                  onClick={handleExport}
+                  title="Download a .json backup"
+                  className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-emerald-700 hover:text-emerald-800"
+                >
+                  <Download size={14} /> Export
+                </button>
+                <button
+                  onClick={handleImportClick}
+                  title="Load a .json backup"
+                  className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-emerald-700 hover:text-emerald-800"
+                >
+                  <Upload size={14} /> Import
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={handleImportFile}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-600 transition hover:border-emerald-700 hover:text-emerald-800"
+                >
+                  {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+                </button>
               </div>
             </header>
 

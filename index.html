@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Military TSP Contribution Calculator</title>
+    <style>
+        :root {
+            --primary: #1e3a8a;
+            --primary-hover: #172554;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --warning: #dc2626;
+            --success: #16a34a;
+            --highlight-bg: #f0fdf4;
+            --highlight-border: #bbf7d0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            padding: 2rem 1rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            color: var(--primary);
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 1.75rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            color: var(--primary);
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+
+        @media (max-width: 480px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            background-color: #fff;
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        select:focus, input:focus { border-color: var(--primary); }
+
+        select:disabled, option:disabled {
+            color: #cbd5e1;
+            background-color: #f8fafc;
+        }
+
+        input:disabled {
+            background-color: #f1f5f9;
+            color: #475569;
+            cursor: not-allowed;
+        }
+
+        .output-box {
+            background-color: #f1f5f9;
+            border-left: 4px solid var(--primary);
+            padding: 0.75rem;
+            border-radius: 0 6px 6px 0;
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            min-height: 44px;
+        }
+
+        .main-output-container {
+            text-align: center;
+            padding: 1rem 0;
+        }
+
+        .main-output-val {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 0.25rem;
+        }
+
+        .fraction-output {
+            font-size: 1.5rem;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 0.5rem;
+            color: #334155;
+            transition: color 0.2s;
+        }
+
+        .strategy-box {
+            background-color: var(--highlight-bg);
+            border: 1px solid var(--highlight-border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .strategy-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #166534;
+        }
+
+        .strategy-subtext {
+            font-size: 0.85rem;
+            color: #15803d;
+            margin-top: 0.25rem;
+        }
+
+        .warning-msg {
+            display: none;
+            background-color: #fef2f2;
+            color: var(--warning);
+            border: 1px solid #fca5a5;
+            padding: 0.75rem;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 600;
+            margin-top: 1rem;
+            font-size: 0.95rem;
+            animation: shake 0.4s ease-in-out;
+        }
+
+        .note {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+            text-align: center;
+            font-style: italic;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25%       { transform: translateX(-5px); }
+            75%       { transform: translateX(5px); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🧮 Military TSP Calculator</h1>
+        <p>Estimate elective deferral metrics based on DFAS Active Duty Pay Charts (2026)</p>
+    </header>
+
+    <!-- Section 1: Base Pay Selection -->
+    <div class="card">
+        <div class="card-title">1. Base Pay Information</div>
+        <div class="grid">
+            <div class="form-group">
+                <label for="paygrade">Paygrade</label>
+                <select id="paygrade">
+                    <optgroup label="Enlisted">
+                        <option value="E-1">E-1</option>
+                        <option value="E-2">E-2</option>
+                        <option value="E-3" selected>E-3</option>
+                        <option value="E-4">E-4</option>
+                        <option value="E-5">E-5</option>
+                        <option value="E-6">E-6</option>
+                        <option value="E-7">E-7</option>
+                        <option value="E-8">E-8</option>
+                        <option value="E-9">E-9</option>
+                    </optgroup>
+                    <optgroup label="Warrant Officers">
+                        <option value="W-1">W-1 (CWO1)</option>
+                        <option value="W-2">W-2 (CWO2)</option>
+                        <option value="W-3">W-3 (CWO3)</option>
+                        <option value="W-4">W-4 (CWO4)</option>
+                        <option value="W-5">W-5 (CWO5)</option>
+                    </optgroup>
+                    <optgroup label="Prior Enlisted Officers">
+                        <option value="O-1E">O-1E</option>
+                        <option value="O-2E">O-2E</option>
+                        <option value="O-3E">O-3E</option>
+                    </optgroup>
+                    <optgroup label="Commissioned Officers">
+                        <option value="O-1">O-1</option>
+                        <option value="O-2">O-2</option>
+                        <option value="O-3">O-3</option>
+                        <option value="O-4">O-4</option>
+                        <option value="O-5">O-5</option>
+                        <option value="O-6">O-6</option>
+                        <option value="O-7">O-7</option>
+                        <option value="O-8">O-8</option>
+                        <option value="O-9">O-9</option>
+                        <option value="O-10">O-10</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="yos">Years of Service</label>
+                <select id="yos">
+                    <option value="2_or_less">2 or less</option>
+                    <option value="over_2">Over 2</option>
+                    <option value="over_3">Over 3</option>
+                    <option value="over_4">Over 4</option>
+                    <option value="over_6">Over 6</option>
+                    <option value="over_8">Over 8</option>
+                    <option value="over_10">Over 10</option>
+                    <option value="over_12">Over 12</option>
+                    <option value="over_14">Over 14</option>
+                    <option value="over_16">Over 16</option>
+                    <option value="over_18">Over 18</option>
+                    <option value="over_20">Over 20</option>
+                    <option value="over_22">Over 22</option>
+                    <option value="over_24">Over 24</option>
+                    <option value="over_26">Over 26</option>
+                    <option value="over_28">Over 28</option>
+                    <option value="over_30">Over 30</option>
+                    <option value="over_32">Over 32</option>
+                    <option value="over_34">Over 34</option>
+                    <option value="over_36">Over 36</option>
+                    <option value="over_38">Over 38</option>
+                    <option value="over_40">Over 40</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Base Pay Monthly</label>
+                <div id="monthly-base-output" class="output-box">$0.00</div>
+            </div>
+
+            <div class="form-group">
+                <label>Base Pay Annual</label>
+                <div id="annual-base-output" class="output-box">$0.00</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 2: Max-Out Strategy Engine -->
+    <div class="card">
+        <div class="card-title">2. How to Max Out ($23,500 Goal)</div>
+        <div class="strategy-box">
+            <div id="strategy-output" class="strategy-text">Calculating target allocation...</div>
+            <div id="strategy-subtext" class="strategy-subtext">Projected values based on full calendar year.</div>
+        </div>
+    </div>
+
+    <!-- Section 3: TSP Allocation Calculations -->
+    <div class="card">
+        <div class="card-title">3. Monthly TSP Contributions</div>
+        <div class="grid" style="margin-bottom: 1.25rem;">
+            <div class="form-group">
+                <label for="trad-pct">Traditional TSP (%)</label>
+                <select id="trad-pct"></select>
+            </div>
+            <div class="form-group">
+                <label for="roth-pct">Roth TSP (%)</label>
+                <select id="roth-pct"></select>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label for="match-pct">Contribution Match (Non-selectable)</label>
+            <input type="text" id="match-pct" disabled value="1%">
+        </div>
+
+        <div class="main-output-container">
+            <label>Total Personal Monthly Contribution</label>
+            <div id="main-monthly-dollar" class="main-output-val">$0.00</div>
+        </div>
+    </div>
+
+    <!-- Section 4: Annual Projection Tracker -->
+    <div class="card">
+        <div class="card-title">4. Yearly Contribution Target Progress</div>
+        <div class="fraction-output" id="annual-fraction-output">$0 / $23,500</div>
+        <div class="warning-msg" id="warning-box">
+            ⚠️ Warning: Over Contribution Detected!
+        </div>
+        <p class="note">
+            O-7 through O-10 pay is capped at $18,999.90/mo per 37 U.S.C. § 203(a) (Level II Executive Schedule).<br>
+            Source: DFAS.mil — Basic Pay: Officers, effective January 1, 2026.
+        </p>
+    </div>
+</div>
+
+<script>
+    // Active Duty Pay Table — Monthly Values (DFAS 2026)
+    const payTable = {
+        // Enlisted
+        "E-1": { "2_or_less": 2407.20, "default": 2407.20 },
+        "E-2": { "default": 2698.50 },
+        "E-3": { "2_or_less": 2838.20, "over_2": 3014.10, "over_3": 3206.40, "default": 3206.40 },
+        "E-4": { "2_or_less": 3144.10, "over_2": 3305.20, "over_3": 3497.30, "over_4": 3684.60, "default": 3684.60 },
+        "E-5": { "2_or_less": 3428.40, "over_2": 3659.10, "over_3": 3848.40, "over_4": 4041.20, "over_6": 4324.50, "default": 4324.50 },
+        "E-6": { "2_or_less": 3742.10, "over_2": 4118.30, "over_3": 4310.20, "over_4": 4496.50, "over_6": 4694.10, "over_8": 5108.30, "over_10": 5269.40, "default": 5269.40 },
+        "E-7": { "2_or_less": 4328.50, "over_2": 4725.20, "over_3": 4908.10, "over_4": 5142.30, "over_6": 5334.40, "over_8": 5658.20, "over_10": 5842.10, "over_12": 6155.30, "default": 6155.30 },
+        "E-8": { "2_or_less": 5449.50, "over_2": 5690.70, "over_3": 5839.80, "over_4": 6018.60, "over_6": 6212.10, "over_8": 6561.90, "over_10": 6739.20, "over_12": 7040.70, "over_14": 7207.80, "default": 7207.80 },
+        "E-9": { "2_or_less": 6657.30, "over_2": 6807.90, "over_3": 6997.80, "over_4": 7221.60, "over_6": 7447.80, "over_8": 7808.40, "over_10": 8114.70, "over_12": 8436.00, "default": 8436.00 },
+
+        // Warrant Officers
+        "W-1": { "2_or_less": 3935.40, "over_2": 4277.40, "over_3": 4390.20, "over_4": 4635.60, "over_6": 4920.30, "over_8": 5313.30, "over_10": 5510.10, "over_12": 5784.60, "over_14": 6055.20, "default": 6055.20 },
+        "W-2": { "2_or_less": 4483.50, "over_2": 4913.40, "over_3": 5040.60, "over_4": 5117.10, "over_6": 5400.00, "over_8": 5851.80, "over_10": 6075.30, "over_12": 6291.60, "over_14": 6554.40, "over_16": 6766.20, "over_18": 6955.50, "default": 6955.50 },
+        "W-3": { "2_or_less": 5067.30, "over_2": 5280.90, "over_3": 5497.80, "over_4": 5567.40, "over_6": 5796.00, "over_8": 6245.70, "over_10": 6712.50, "over_12": 6927.90, "over_14": 7175.70, "over_16": 7427.70, "over_18": 7837.20, "default": 7837.20 },
+        "W-4": { "2_or_less": 5553.00, "over_2": 5913.60, "over_3": 6092.40, "over_4": 6265.50, "over_6": 6549.90, "over_8": 6988.50, "over_10": 7225.80, "over_12": 7654.80, "over_14": 8038.20, "over_16": 8408.10, "over_18": 8704.80, "over_20": 9132.30, "default": 9132.30 },
+        "W-5": { "over_20": 9885.60, "default": 9885.60 },
+
+        // Prior Enlisted Officers
+        "O-1E": { "over_4": 5222.40, "over_6": 5510.70, "over_8": 5781.30, "over_10": 6055.20, "over_12": 6325.20, "over_14": 6654.30, "default": 6654.30 },
+        "O-2E": { "over_4": 6484.50, "over_6": 6614.70, "over_8": 6924.90, "over_10": 7430.70, "over_12": 7724.70, "over_14": 7949.70, "default": 7949.70 },
+        "O-3E": { "over_4": 7382.70, "over_6": 7737.00, "over_8": 8125.50, "over_10": 8375.70, "over_12": 8785.80, "over_14": 9253.20, "over_16": 9467.40, "over_18": 9892.20, "default": 9892.20 },
+
+        // Commissioned Officers O-1 to O-6
+        "O-1": { "2_or_less": 4150.20, "over_2": 4320.00, "over_3": 5222.40, "default": 5222.40 },
+        "O-2": { "2_or_less": 4782.00, "over_2": 5446.20, "over_3": 6272.40, "over_4": 6484.50, "default": 6484.50 },
+        "O-3": { "2_or_less": 5534.10, "over_2": 6273.90, "over_3": 6770.40, "over_4": 7382.70, "over_6": 7737.00, "over_8": 8125.50, "over_10": 8375.70, "default": 8375.70 },
+        "O-4": { "2_or_less": 6294.60, "over_2": 7286.40, "over_3": 7773.60, "over_4": 7881.00, "over_6": 8332.20, "over_8": 8816.40, "over_10": 9420.00, "default": 9420.00 },
+        "O-5": { "2_or_less": 7295.40, "over_2": 8218.20, "over_3": 8787.00, "over_4": 8894.10, "over_6": 9249.60, "over_8": 9461.40, "over_10": 9928.50, "default": 9928.50 },
+        "O-6": { "2_or_less": 8751.30, "over_2": 9613.80, "over_3": 10245.00, "over_4": 10245.00, "over_6": 10284.30, "over_8": 10725.00, "over_10": 10783.50, "default": 10783.50 },
+
+        // General / Flag Officers O-7 to O-10 (capped at $18,999.90/mo per 37 U.S.C. § 203(a))
+        "O-7": { "2_or_less": 11540.10, "over_2": 12076.20, "over_3": 12324.30, "over_4": 12522.00, "over_6": 12878.70, "over_8": 13231.80, "over_10": 13639.20, "over_12": 14045.70, "over_14": 14454.30, "over_16": 15735.30, "over_18": 16817.70, "over_20": 16817.70, "over_22": 16817.70, "over_24": 16817.70, "over_26": 16904.40, "over_28": 16904.40, "over_30": 17242.20, "over_32": 17242.20, "over_34": 17242.20, "over_36": 17242.20, "over_38": 17242.20, "over_40": 17242.20, "default": 17242.20 },
+        "O-8": { "2_or_less": 13888.50, "over_2": 14343.90, "over_3": 14645.40, "over_4": 14729.40, "over_6": 15106.50, "over_8": 15735.30, "over_10": 15882.00, "over_12": 16479.60, "over_14": 16651.80, "over_16": 17166.60, "over_18": 17911.80, "over_20": 18598.20, "over_22": 18999.90, "over_24": 18999.90, "over_26": 18999.90, "over_28": 18999.90, "over_30": 18999.90, "over_32": 18999.90, "over_34": 18999.90, "over_36": 18999.90, "over_38": 18999.90, "over_40": 18999.90, "default": 18999.90 },
+        "O-9": { "over_20": 18999.90, "over_22": 18999.90, "over_24": 18999.90, "over_26": 18999.90, "over_28": 18999.90, "over_30": 18999.90, "over_32": 18999.90, "over_34": 18999.90, "over_36": 18999.90, "over_38": 18999.90, "over_40": 18999.90, "default": 18999.90 },
+        "O-10": { "over_20": 18999.90, "over_22": 18999.90, "over_24": 18999.90, "over_26": 18999.90, "over_28": 18999.90, "over_30": 18999.90, "over_32": 18999.90, "over_34": 18999.90, "over_36": 18999.90, "over_38": 18999.90, "over_40": 18999.90, "default": 18999.90 }
+    };
+
+    const IRS_LIMIT = 23500;
+
+    const paygradeSelect         = document.getElementById('paygrade');
+    const yosSelect              = document.getElementById('yos');
+    const monthlyBaseOutput      = document.getElementById('monthly-base-output');
+    const annualBaseOutput       = document.getElementById('annual-base-output');
+    const tradPctSelect          = document.getElementById('trad-pct');
+    const rothPctSelect          = document.getElementById('roth-pct');
+    const matchPctInput          = document.getElementById('match-pct');
+    const mainMonthlyDollarOutput = document.getElementById('main-monthly-dollar');
+    const annualFractionOutput   = document.getElementById('annual-fraction-output');
+    const warningBox             = document.getElementById('warning-box');
+    const strategyOutput         = document.getElementById('strategy-output');
+    const strategySubtext        = document.getElementById('strategy-subtext');
+
+    function initDropdowns() {
+        for (let i = 0; i <= 92; i++) {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `${i}%`;
+            tradPctSelect.appendChild(opt);
+        }
+        for (let i = 0; i <= 60; i++) {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `${i}%`;
+            rothPctSelect.appendChild(opt);
+        }
+        tradPctSelect.value = '5';
+        rothPctSelect.value = '0';
+    }
+
+    function updatePercentageBoundaries(triggeredBy) {
+        const currentTrad = parseInt(tradPctSelect.value) || 0;
+        const currentRoth = parseInt(rothPctSelect.value) || 0;
+
+        if (triggeredBy === 'roth') {
+            const allowedTradMax = Math.max(0, Math.floor(92 - (currentRoth * 1.5)));
+            Array.from(tradPctSelect.options).forEach(opt => {
+                opt.disabled = parseInt(opt.value) > allowedTradMax;
+            });
+            if (currentTrad > allowedTradMax) tradPctSelect.value = allowedTradMax;
+        } else {
+            const allowedRothMax = Math.max(0, Math.floor(60 - (currentTrad / 1.5)));
+            Array.from(rothPctSelect.options).forEach(opt => {
+                opt.disabled = parseInt(opt.value) > allowedRothMax;
+            });
+            if (currentRoth > allowedRothMax) rothPctSelect.value = allowedRothMax;
+        }
+    }
+
+    function calculateTSP() {
+        const paygrade = paygradeSelect.value;
+        const yos      = yosSelect.value;
+        const tradPct  = parseInt(tradPctSelect.value) || 0;
+        const rothPct  = parseInt(rothPctSelect.value) || 0;
+
+        let monthlyBasePay = 0;
+        if (payTable[paygrade]) {
+            monthlyBasePay = payTable[paygrade][yos] !== undefined
+                ? payTable[paygrade][yos]
+                : payTable[paygrade]['default'];
+        }
+
+        const annualBasePay = monthlyBasePay * 12;
+        const fmt = (v, dec = 2) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: dec }).format(v);
+
+        monthlyBaseOutput.textContent = fmt(monthlyBasePay);
+        annualBaseOutput.textContent  = fmt(annualBasePay);
+
+        const totalPersonalPct = tradPct + rothPct;
+        let matchPct = 1;
+        if (totalPersonalPct >= 5)      matchPct = 5;
+        else if (totalPersonalPct > 0)  matchPct = totalPersonalPct + 1;
+        matchPctInput.value = `${matchPct}%`;
+
+        const monthlyContrib = monthlyBasePay * (totalPersonalPct / 100);
+        const annualContrib  = monthlyContrib * 12;
+
+        mainMonthlyDollarOutput.textContent = fmt(monthlyContrib);
+        annualFractionOutput.textContent    = `${fmt(annualContrib, 0)} / ${fmt(IRS_LIMIT, 0)}`;
+
+        if (annualContrib > IRS_LIMIT) {
+            warningBox.style.display        = 'block';
+            annualFractionOutput.style.color = 'var(--warning)';
+        } else {
+            warningBox.style.display        = 'none';
+            annualFractionOutput.style.color = '#334155';
+        }
+
+        calculateMaxOutStrategy(monthlyBasePay);
+    }
+
+    function calculateMaxOutStrategy(monthlyBasePay) {
+        if (monthlyBasePay === 0) {
+            strategyOutput.textContent = 'Please select a valid paygrade.';
+            return;
+        }
+        const fmt        = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
+        const requiredPct = Math.floor((IRS_LIMIT / 12 / monthlyBasePay) * 100);
+
+        if (requiredPct > 92) {
+            strategyOutput.innerHTML  = `Contribute <span style="color:var(--warning)">92%</span> (Traditional Max Base Allocation)`;
+            strategySubtext.textContent = `At your paygrade, max base allocation limits yearly savings to ${fmt(monthlyBasePay * 0.92 * 12)}.`;
+        } else if (requiredPct <= 60) {
+            strategyOutput.innerHTML  = `Contribute <span style="color:var(--primary)">${requiredPct}%</span> to either Traditional or Roth`;
+            strategySubtext.textContent = `This contributes ${fmt(monthlyBasePay * (requiredPct / 100) * 12)} / $23,500 annually without going over.`;
+        } else {
+            strategyOutput.innerHTML  = `Contribute <span style="color:var(--primary)">${requiredPct}%</span> to Traditional`;
+            strategySubtext.textContent = `This contributes ${fmt(monthlyBasePay * (requiredPct / 100) * 12)} / $23,500 annually. (Exceeds standalone Roth 60% limit).`;
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        initDropdowns();
+        updatePercentageBoundaries('trad');
+        calculateTSP();
+
+        paygradeSelect.addEventListener('change', calculateTSP);
+        yosSelect.addEventListener('change', calculateTSP);
+
+        tradPctSelect.addEventListener('change', () => {
+            updatePercentageBoundaries('trad');
+            calculateTSP();
+        });
+        rothPctSelect.addEventListener('change', () => {
+            updatePercentageBoundaries('roth');
+            calculateTSP();
+        });
+    });
+</script>
+
+</body>
+</html>

@@ -102,8 +102,27 @@
         minFreq: "Monthly",
         plannedPayment: "",
         plannedFreq: "Monthly",
+        emotionalWeight: 5,
       };
     }
+
+    const STRATEGIES = {
+      avalanche: {
+        label: "Avalanche",
+        sub: "Highest interest first",
+        blurb: "Targets the highest APR first. Mathematically cheapest — saves the most money over time.",
+      },
+      snowball: {
+        label: "Snowball",
+        sub: "Smallest balance first",
+        blurb: "Targets the smallest balance first. Fastest wins build momentum, even if it costs a little more in interest.",
+      },
+      emotional: {
+        label: "Emotional",
+        sub: "Heaviest weight first",
+        blurb: "Targets the debt with the highest emotional weight first — the one that weighs on you most, regardless of the math.",
+      },
+    };
 
     /* ----------------------------- Engine ----------------------------- */
     function computeDebt(debt) {
@@ -338,6 +357,21 @@
                   {FREQ_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               </Field>
+
+              <div className="sm:col-span-2">
+                <Field label={"Emotional Weight: " + debt.emotionalWeight + "/10"} hint="How much does this debt weigh on you? (1 = barely, 10 = keeps you up at night)">
+                  <div className="flex items-center gap-3 pt-1">
+                    <span className="text-xs text-stone-400">1</span>
+                    <input
+                      type="range" min="1" max="10" step="1"
+                      value={debt.emotionalWeight}
+                      onChange={(e) => update("emotionalWeight")(parseInt(e.target.value, 10))}
+                      className="w-full accent-emerald-700 cursor-pointer"
+                    />
+                    <span className="text-xs text-stone-400">10</span>
+                  </div>
+                </Field>
+              </div>
             </div>
 
             {result.valid && result.neverPaysOff && (
@@ -398,9 +432,66 @@
       );
     }
 
+    /* -------------------------- Payoff Order -------------------------- */
+    function PayoffOrder({ ranked, strategy, onStrategyChange }) {
+      const meta = STRATEGIES[strategy];
+      return (
+        <div className="rounded-2xl border border-stone-200 bg-[#fdfcf8] p-6 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="font-serif text-xl font-bold text-stone-900">Suggested Payoff Order</h2>
+              <p className="mt-1 max-w-md text-xs leading-relaxed text-stone-500">{meta.blurb}</p>
+            </div>
+            <div className="inline-flex shrink-0 rounded-xl border border-stone-200 bg-white p-1">
+              {Object.entries(STRATEGIES).map(([key, s]) => {
+                const active = key === strategy;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => onStrategyChange(key)}
+                    className={
+                      "rounded-lg px-3 py-1.5 text-xs font-semibold transition " +
+                      (active ? "bg-emerald-800 text-white shadow-sm" : "text-stone-500 hover:text-stone-800")
+                    }
+                    title={s.sub}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {ranked.length === 0 ? (
+            <p className="mt-5 text-sm text-stone-400">Add a debt with an amount to see a recommended payoff order.</p>
+          ) : (
+            <ol className="mt-5 space-y-2">
+              {ranked.map((d, i) => (
+                <li
+                  key={d.id}
+                  className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2.5"
+                >
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                    style={{ backgroundColor: i === 0 ? "#1f6f5c" : "#a8a29e" }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-stone-700">{d.label}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-stone-500">{d.metricText}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      );
+    }
+
     /* ------------------------------ App ------------------------------- */
     function DebtPortfolioCalculator() {
       const [debts, setDebts] = useState([makeDebt()]);
+      const [strategy, setStrategy] = useState("avalanche");
 
       const handleChange = useCallback((id, next) => {
         setDebts((prev) => prev.map((d) => (d.id === id ? next : d)));
@@ -455,6 +546,43 @@
           chartData,
         };
       }, [debts, results]);
+
+      const ranked = useMemo(() => {
+        const items = debts
+          .map((d, i) => {
+            const amount = parseFloat(d.amount);
+            if (!isFinite(amount) || amount <= 0) return null;
+            const apr = parseFloat(d.apr);
+            return {
+              id: d.id,
+              label: d.name.trim() || `Unnamed Debt ${i + 1}`,
+              color: SLICE_COLORS[i % SLICE_COLORS.length],
+              amount,
+              apr: isFinite(apr) ? apr : 0,
+              weight: d.emotionalWeight || 0,
+            };
+          })
+          .filter(Boolean);
+
+        const sorted = [...items];
+        if (strategy === "avalanche") {
+          sorted.sort((a, b) => b.apr - a.apr || a.amount - b.amount);
+        } else if (strategy === "snowball") {
+          sorted.sort((a, b) => a.amount - b.amount || b.apr - a.apr);
+        } else {
+          sorted.sort((a, b) => b.weight - a.weight || b.apr - a.apr);
+        }
+
+        return sorted.map((d) => ({
+          ...d,
+          metricText:
+            strategy === "avalanche"
+              ? fmtPct(d.apr)
+              : strategy === "snowball"
+              ? fmtMoney(d.amount)
+              : `Weight ${d.weight}/10`,
+        }));
+      }, [debts, strategy]);
 
       return (
         <div className="min-h-screen w-full bg-[#f6f2e9] text-stone-800 antialiased">
@@ -511,6 +639,10 @@
                   Each debt is amortized using its <em>planned</em> payment. Interest accrues each period at <code>APR ÷ periods-per-year</code> on the balance before the payment is applied. The monthly outflow normalizes every planned payment to a per-month figure, and the weighted average rate is weighted by each balance.
                 </div>
               </div>
+            </section>
+
+            <section className="mb-8">
+              <PayoffOrder ranked={ranked} strategy={strategy} onStrategyChange={setStrategy} />
             </section>
 
             <div className="mb-4 flex items-center justify-between">

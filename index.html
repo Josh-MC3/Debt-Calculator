@@ -184,7 +184,226 @@
       };
     }
 
-    /* --------------------------- Donut Chart -------------------------- */
+    /* ------------------- Portfolio Simulation Engine ------------------ *
+     * Runs all debts together on a monthly timeline so freed-up payments
+     * can roll over to the next target debt. Each debt keeps its own
+     * planned payment (normalized to a monthly-equivalent amount). An
+     * optional extra monthly amount is applied to the current target.
+     * order: array of debt-ids defining payoff priority.
+     * ----------------------------------------------------------------- */
+    const MAX_MONTHS = 1200; // 100 years safety cap
+
+    function monthlyEquivalent(payment, freq) {
+      const ppy = FREQUENCIES[freq] || 12;
+      return (payment * ppy) / 12;
+    }
+
+    function simulatePortfolio(debtList, order, extraMonthly = 0) {
+      // Build working set of valid debts
+      const map = {};
+      debtList.forEach((d) => {
+        const principal = parseFloat(d.amount);
+        const apr = parseFloat(d.apr);
+        const planned = parseFloat(d.plannedPayment);
+        const minRaw = parseFloat(d.minPayment);
+        if (
+          isFinite(principal) && principal > 0 &&
+          isFinite(apr) && apr >= 0 &&
+          isFinite(planned) && planned > 0
+        ) {
+          const plannedMonthly = monthlyEquivalent(planned, d.plannedFreq);
+          // Minimum normalized to monthly; fall back to planned if no/invalid min,
+          // and never let the "minimum" exceed the planned payment.
+          let minMonthly = isFinite(minRaw) && minRaw > 0
+            ? monthlyEquivalent(minRaw, d.minFreq)
+            : plannedMonthly;
+          if (minMonthly > plannedMonthly) minMonthly = plannedMonthly;
+          map[d.id] = {
+            id: d.id,
+            balance: principal,
+            monthlyRate: apr / 100 / 12,
+            plannedMonthly,
+            minMonthly,
+            totalInterest: 0,
+            paidOffMonth: null,
+          };
+        }
+      });
+
+      const activeOrder = order.filter((id) => map[id]);
+      if (activeOrder.length === 0) {
+        return { valid: false, totalInterest: 0, months: 0, perDebt: {} };
+      }
+
+      // Total monthly firepower = sum of all planned payments + the what-if extra.
+      // This pool stays constant; non-targets take their minimum, the target
+      // absorbs everything left over. As debts clear, their share returns to the pool.
+      const totalPool =
+        activeOrder.reduce((s, id) => s + map[id].plannedMonthly, 0) + extraMonthly;
+
+      let month = 0;
+      let remaining = activeOrder.length;
+
+      while (remaining > 0 && month < MAX_MONTHS) {
+        month += 1;
+
+        // 1. Accrue interest on all remaining debts
+        for (const id of activeOrder) {
+          const d = map[id];
+          if (d.balance <= 0) continue;
+          const interest = d.balance * d.monthlyRate;
+          d.totalInterest += interest;
+          d.balance += interest;
+        }
+
+        // 2. Current target = first unpaid debt in the chosen order
+        const targetId = activeOrder.find((id) => map[id].balance > 0);
+        if (!targetId) break;
+
+        // 3. Sum minimums of all remaining NON-target debts
+        let minsOfOthers = 0;
+        for (const id of activeOrder) {
+          const d = map[id];
+          if (d.balance <= 0 || id === targetId) continue;
+          minsOfOthers += d.minMonthly;
+        }
+
+        // 4. Target gets the whole pool minus everyone else's minimums
+        const targetPay = Math.max(0, totalPool - minsOfOthers);
+
+        // 5. Apply payments
+        for (const id of activeOrder) {
+          const d = map[id];
+          if (d.balance <= 0) continue;
+          const pay = id === targetId ? targetPay : d.minMonthly;
+          d.balance -= pay;
+          if (d.balance <= 0) {
+            d.balance = 0;
+            d.paidOffMonth = month;
+            remaining -= 1;
+          }
+        }
+
+        // 6. Safety: if the target can't even dent its own balance, it never pays off
+        const t = map[targetId];
+        if (t.balance > 0 && targetPay <= t.balance * t.monthlyRate + 1e-9 && month > 1) {
+          return {
+            valid: true,
+            completed: false,
+            neverPaysOff: true,
+            totalInterest: activeOrder.reduce((s, id) => s + map[id].totalInterest, 0),
+            months: null,
+            perDebt: {},
+            count: activeOrder.length,
+          };
+        }
+      }
+
+      const completed = remaining === 0 && month < MAX_MONTHS;
+      let totalInterest = 0;
+      const perDebt = {};
+      for (const id of activeOrder) {
+        totalInterest += map[id].totalInterest;
+        perDebt[id] = {
+          paidOffMonth: map[id].paidOffMonth,
+          totalInterest: map[id].totalInterest,
+        };
+      }
+
+      return {
+        valid: true,
+        completed,
+        neverPaysOff: !completed,
+        totalInterest,
+        months: completed ? month : null,
+        perDebt,
+        count: activeOrder.length,
+      };
+    }
+
+    function monthsToYM(totalMonths) {
+      if (!isFinite(totalMonths) || totalMonths == null) return "—";
+      const years = Math.floor(totalMonths / 12);
+      const months = totalMonths - years * 12;
+      const parts = [];
+      if (years > 0) parts.push(`${years} yr`);
+      parts.push(`${months} mo`);
+      return parts.join(" ");
+    }
+
+    /* ---------------- Date-Goal Payment Solver (single) --------------- *
+     * Solve for the monthly-equivalent payment needed to clear one debt
+     * in exactly `targetMonths`. Binary search on payment amount.
+     * Returns the payment in the debt's OWN planned frequency.
+     * ----------------------------------------------------------------- */
+    function solvePaymentForMonths(principal, apr, targetMonths, freq) {
+      if (!(isFinite(principal) && principal > 0)) return null;
+      if (!(isFinite(apr) && apr >= 0)) return null;
+      if (!(isFinite(targetMonths) && targetMonths >= 1)) return null;
+
+      const monthlyRate = apr / 100 / 12;
+
+      // Months a given monthly payment takes to clear the balance
+      const monthsFor = (monthlyPay) => {
+        let bal = principal;
+        let m = 0;
+        while (bal > 0 && m < MAX_MONTHS) {
+          bal += bal * monthlyRate;
+          bal -= monthlyPay;
+          m += 1;
+          if (bal < 0) bal = 0;
+        }
+        return bal > 0 ? Infinity : m;
+      };
+
+      // Lower bound must at least exceed monthly interest to converge
+      let lo = principal * monthlyRate + 0.01;
+      // Upper bound: enough to clear in one month
+      let hi = principal * (1 + monthlyRate) + 1;
+
+      // If even the high payment can't hit the target (target too short), clamp
+      if (monthsFor(hi) > targetMonths) {
+        // target shorter than 1 month of full payoff — hi already clears in 1mo
+      }
+
+      // Binary search for smallest monthly payment achieving <= targetMonths
+      for (let iter = 0; iter < 100; iter++) {
+        const mid = (lo + hi) / 2;
+        if (monthsFor(mid) <= targetMonths) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+
+      const monthlyNeeded = hi;
+      // Convert monthly-equivalent back to the debt's chosen frequency
+      const ppy = FREQUENCIES[freq] || 12;
+      const perPeriod = (monthlyNeeded * 12) / ppy;
+
+      // Compute total interest at this payment
+      let bal = principal;
+      let m = 0;
+      let interest = 0;
+      while (bal > 0 && m < MAX_MONTHS) {
+        const i = bal * monthlyRate;
+        interest += i;
+        bal += i;
+        bal -= monthlyNeeded;
+        m += 1;
+        if (bal < 0) bal = 0;
+      }
+
+      return {
+        monthlyNeeded,
+        perPeriod,
+        freq,
+        totalInterest: interest,
+        achievedMonths: m,
+      };
+    }
+
+
     function DonutChart({ data, total }) {
       const size = 220;
       const stroke = 30;
@@ -488,6 +707,281 @@
       );
     }
 
+    /* ----------------------- Stat comparison row ---------------------- */
+    function CompareCard({ title, sub, accent, interest, months, neverPaysOff, isWinner, deltaText }) {
+      return (
+        <div
+          className="relative rounded-2xl border bg-white p-5 shadow-sm"
+          style={{ borderColor: isWinner ? accent : "#e7e5e4" }}
+        >
+          {isWinner && (
+            <span
+              className="absolute -top-2.5 right-4 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+              style={{ backgroundColor: accent }}
+            >
+              Saves More
+            </span>
+          )}
+          <p className="font-serif text-lg font-bold text-stone-900">{title}</p>
+          <p className="mb-3 text-xs text-stone-400">{sub}</p>
+          {neverPaysOff ? (
+            <p className="text-sm font-medium text-amber-700">
+              Payments don't clear this debt set — balance grows.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-400">Total Interest</p>
+                <p className="text-xl font-bold tabular-nums text-stone-800">{fmtMoneyExact(interest)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-400">Debt-Free In</p>
+                <p className="text-xl font-bold tabular-nums text-stone-800">{monthsToYM(months)}</p>
+              </div>
+              {deltaText && (
+                <p className="pt-1 text-xs font-medium" style={{ color: accent }}>{deltaText}</p>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* --------------------------- Strategy Lab ------------------------- */
+    function StrategyLab({ debts }) {
+      const [extra, setExtra] = useState(0);
+      const [goalDebtId, setGoalDebtId] = useState("");
+      const [goalMonths, setGoalMonths] = useState(24);
+
+      // Build ordered id lists for each strategy
+      const validDebts = debts.filter((d) => {
+        const a = parseFloat(d.amount), apr = parseFloat(d.apr), p = parseFloat(d.plannedPayment);
+        return isFinite(a) && a > 0 && isFinite(apr) && apr >= 0 && isFinite(p) && p > 0;
+      });
+
+      const avalancheOrder = [...validDebts]
+        .sort((a, b) => parseFloat(b.apr) - parseFloat(a.apr) || parseFloat(a.amount) - parseFloat(b.amount))
+        .map((d) => d.id);
+      const snowballOrder = [...validDebts]
+        .sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount) || parseFloat(b.apr) - parseFloat(a.apr))
+        .map((d) => d.id);
+
+      const avalanche = useMemo(
+        () => simulatePortfolio(debts, avalancheOrder, extra),
+        [debts, extra]
+      );
+      const snowball = useMemo(
+        () => simulatePortfolio(debts, snowballOrder, extra),
+        [debts, extra]
+      );
+
+      // Determine winner (lower interest, both must complete)
+      let avalancheWins = false, snowballWins = false, interestGap = null;
+      if (avalanche.completed && snowball.completed) {
+        if (avalanche.totalInterest < snowball.totalInterest - 0.01) {
+          avalancheWins = true;
+          interestGap = snowball.totalInterest - avalanche.totalInterest;
+        } else if (snowball.totalInterest < avalanche.totalInterest - 0.01) {
+          snowballWins = true;
+          interestGap = avalanche.totalInterest - snowball.totalInterest;
+        }
+      }
+
+      // Date-goal solver
+      const goalDebt = debts.find((d) => d.id === goalDebtId);
+      const goalResult = useMemo(() => {
+        if (!goalDebt) return null;
+        const principal = parseFloat(goalDebt.amount);
+        const apr = parseFloat(goalDebt.apr);
+        if (!(isFinite(principal) && principal > 0)) return null;
+        const solved = solvePaymentForMonths(principal, apr, goalMonths, goalDebt.plannedFreq);
+        if (!solved) return null;
+        // Compare to current planned payment's outcome
+        const current = computeDebt(goalDebt);
+        return { solved, current, principal };
+      }, [goalDebt, goalMonths]);
+
+      const hasData = validDebts.length > 0;
+
+      return (
+        <div className="space-y-5">
+          {/* What-if + Comparison */}
+          <div className="rounded-2xl border border-stone-200 bg-[#fdfcf8] p-6 shadow-sm">
+            <h3 className="font-serif text-xl font-bold text-stone-900">Avalanche vs. Snowball</h3>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-stone-500">
+              Both strategies use each debt's own planned payment. When a debt is cleared, its payment rolls
+              onto the next target — highest-APR-first for avalanche, smallest-balance-first for snowball.
+              Drag the slider to throw extra money at whichever debt is currently being targeted.
+            </p>
+
+            {!hasData ? (
+              <p className="mt-5 text-sm text-stone-400">
+                Add at least one debt with an amount, APR, and planned payment to compare strategies.
+              </p>
+            ) : (
+              <>
+                {/* What-if slider */}
+                <div className="mt-5 rounded-xl border border-stone-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                      Extra Payment (per month, toward current target)
+                    </span>
+                    <span className="font-serif text-lg font-bold tabular-nums text-emerald-800">
+                      +{fmtMoney(extra)}/mo
+                    </span>
+                  </div>
+                  <input
+                    type="range" min="0" max="2000" step="25"
+                    value={extra}
+                    onChange={(e) => setExtra(parseInt(e.target.value, 10))}
+                    className="mt-3 w-full accent-emerald-700 cursor-pointer"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-stone-400">
+                    <span>$0</span><span>$1,000</span><span>$2,000</span>
+                  </div>
+                </div>
+
+                {/* Comparison cards */}
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <CompareCard
+                    title="Avalanche"
+                    sub="Highest interest rate first"
+                    accent="#1f6f5c"
+                    interest={avalanche.totalInterest}
+                    months={avalanche.months}
+                    neverPaysOff={avalanche.neverPaysOff}
+                    isWinner={avalancheWins}
+                    deltaText={avalancheWins && interestGap ? `Saves ${fmtMoneyExact(interestGap)} in interest vs. snowball` : null}
+                  />
+                  <CompareCard
+                    title="Snowball"
+                    sub="Smallest balance first"
+                    accent="#c2703d"
+                    interest={snowball.totalInterest}
+                    months={snowball.months}
+                    neverPaysOff={snowball.neverPaysOff}
+                    isWinner={snowballWins}
+                    deltaText={snowballWins && interestGap ? `Saves ${fmtMoneyExact(interestGap)} in interest vs. avalanche` : null}
+                  />
+                </div>
+
+                {avalanche.completed && snowball.completed && interestGap !== null && (
+                  <p className="mt-4 rounded-xl bg-stone-100 px-4 py-3 text-sm text-stone-600">
+                    <span className="font-semibold text-stone-800">Bottom line:</span>{" "}
+                    {avalancheWins ? "Avalanche" : "Snowball"} saves you{" "}
+                    <span className="font-semibold tabular-nums">{fmtMoneyExact(interestGap)}</span> in interest.
+                    {avalancheWins
+                      ? " Snowball may still be worth it if early wins keep you motivated."
+                      : " (Unusual — this happens when balance order and rate order line up favorably.)"}
+                  </p>
+                )}
+                {avalanche.completed && snowball.completed && interestGap === null && (
+                  <p className="mt-4 rounded-xl bg-stone-100 px-4 py-3 text-sm text-stone-600">
+                    Both strategies cost the same here — common when you have only one debt, or payments
+                    clear each debt before order matters.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Date goal solver */}
+          <div className="rounded-2xl border border-stone-200 bg-[#fdfcf8] p-6 shadow-sm">
+            <h3 className="font-serif text-xl font-bold text-stone-900">Target-Date Solver</h3>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-stone-500">
+              Pick a debt and how soon you want it gone. We'll solve for the payment needed and show what it
+              saves in interest versus your current planned payment.
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Debt to target">
+                <select
+                  value={goalDebtId}
+                  onChange={(e) => setGoalDebtId(e.target.value)}
+                  className={selectCls}
+                >
+                  <option value="">Select a debt…</option>
+                  {debts.map((d, i) => {
+                    const a = parseFloat(d.amount);
+                    if (!(isFinite(a) && a > 0)) return null;
+                    return (
+                      <option key={d.id} value={d.id}>
+                        {d.name.trim() || `Unnamed Debt ${i + 1}`} — {fmtMoney(a)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+
+              <Field label={"Pay it off within: " + monthsToYM(goalMonths)}>
+                <div className="flex items-center gap-3 pt-1">
+                  <span className="text-xs text-stone-400">1mo</span>
+                  <input
+                    type="range" min="1" max="120" step="1"
+                    value={goalMonths}
+                    onChange={(e) => setGoalMonths(parseInt(e.target.value, 10))}
+                    className="w-full accent-emerald-700 cursor-pointer"
+                  />
+                  <span className="text-xs text-stone-400">10yr</span>
+                </div>
+              </Field>
+            </div>
+
+            {goalDebt && goalResult && (
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-emerald-700">Payment Needed</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-stone-800">
+                    {fmtMoneyExact(goalResult.solved.perPeriod)}
+                  </p>
+                  <p className="text-xs text-stone-400">per {goalDebt.plannedFreq.toLowerCase()} payment</p>
+                </div>
+                <div className="rounded-xl border border-stone-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-400">Interest at This Pace</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-stone-800">
+                    {fmtMoneyExact(goalResult.solved.totalInterest)}
+                  </p>
+                  <p className="text-xs text-stone-400">total over {monthsToYM(goalResult.solved.achievedMonths)}</p>
+                </div>
+                <div className="rounded-xl border border-stone-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-400">vs. Your Planned Payment</p>
+                  {goalResult.current.valid && !goalResult.current.neverPaysOff ? (
+                    (() => {
+                      const diff = goalResult.current.totalInterest - goalResult.solved.totalInterest;
+                      const faster = diff > 0.01;
+                      const slower = diff < -0.01;
+                      return (
+                        <>
+                          <p className="mt-1 text-xl font-bold tabular-nums" style={{ color: faster ? "#1f6f5c" : slower ? "#b45309" : "#57534e" }}>
+                            {faster ? "Save " : slower ? "Costs " : ""}{fmtMoneyExact(Math.abs(diff))}
+                          </p>
+                          <p className="text-xs text-stone-400">
+                            {faster
+                              ? `interest saved vs. planned (${monthsToYM(goalResult.current.months)} payoff)`
+                              : slower
+                              ? "more interest — your plan is already faster"
+                              : "same as your current plan"}
+                          </p>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <p className="mt-1 text-sm text-stone-400">No valid planned-payment baseline to compare.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {goalDebt && !goalResult && (
+              <p className="mt-4 text-sm text-amber-700">
+                This debt needs a valid amount and APR before the solver can run.
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     /* ------------------------------ App ------------------------------- */
     function DebtPortfolioCalculator() {
       const [debts, setDebts] = useState([makeDebt()]);
@@ -685,6 +1179,19 @@
                 ))}
               </div>
             )}
+
+            <section className="mt-10">
+              <div className="mb-4 flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-stone-800 text-white">
+                  <TrendingDown size={16} />
+                </span>
+                <div>
+                  <h2 className="font-serif text-xl font-bold text-stone-900">Strategy Lab</h2>
+                  <p className="text-xs text-stone-500">Compare payoff methods, test "what-if" payments, and solve for a target date.</p>
+                </div>
+              </div>
+              <StrategyLab debts={debts} />
+            </section>
 
             <footer className="mt-10 border-t border-stone-300/70 pt-5 text-center text-xs text-stone-400">
               Estimates are for planning only and assume fixed payments and rates. Not financial advice.

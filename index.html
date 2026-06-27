@@ -16,6 +16,13 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    // Force the classic JSX runtime so Babel compiles to React.createElement(...)
+    // instead of injecting `import` statements (which plain <script> tags can't run).
+    Babel.registerPreset('react-classic', {
+      presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]]
+    });
+  </script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Spline+Sans:wght@400;500;600;700&display=swap');
@@ -86,7 +93,7 @@
 <body class="bg-[#f6f2e9]">
   <div id="root"></div>
 
-  <script type="text/babel" data-presets="react">
+  <script type="text/babel" data-presets="react-classic">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
     /* ----------------------- Persistence helpers ---------------------- */
